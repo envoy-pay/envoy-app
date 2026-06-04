@@ -29,8 +29,23 @@ export async function POST(
   const chain = getCeloChain(chainId);
   const assetInfo = chain.assets[asset];
   if (!assetInfo) return NextResponse.json({ error: "bad asset" }, { status: 400 });
+  // Card is charged in USD and settled 1:1 — only USD-pegged assets are sound.
+  if (asset === "cEUR") {
+    return NextResponse.json(
+      { error: "Card settlement supports USD-pegged assets (cUSD, USDC) only." },
+      { status: 400 },
+    );
+  }
 
-  const agent = await resolveAgent(params.agentId, chainId);
+  let agent;
+  try {
+    agent = await resolveAgent(params.agentId, chainId);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "agent not found" },
+      { status: 404 },
+    );
+  }
 
   const origin = req.headers.get("origin") ?? url.origin;
   const fundPath = `/fund/${params.agentId}?amount=${amount}&asset=${asset}&chain=${chainId}`;

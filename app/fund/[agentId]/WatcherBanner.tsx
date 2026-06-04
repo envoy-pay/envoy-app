@@ -53,7 +53,7 @@ export function WatcherBanner({ wallet, chainId, asset, chainShortName, explorer
       {status === "watching" && (
         <motion.div
           className="pointer-events-none absolute inset-y-0 w-1/3"
-          style={{ background: "linear-gradient(90deg, transparent, rgba(79,233,224,0.08), transparent)" }}
+          style={{ background: "linear-gradient(90deg, transparent, rgba(22,23,27,0.05), transparent)" }}
           animate={{ left: ["-33%", "100%"] }}
           transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
         />
@@ -65,60 +65,56 @@ export function WatcherBanner({ wallet, chainId, asset, chainShortName, explorer
             key="received"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative grid grid-cols-12 items-baseline gap-x-6"
+            className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-2"
           >
-            <div className="col-span-12 flex items-baseline gap-3 md:col-span-3">
-              <span className="h-2 w-2 rounded-full bg-flux-lime" />
-              <span className="flag text-flux-lime">payment received</span>
+            <div className="flex items-center gap-3">
+              <span className="h-2 w-2 rounded-full bg-ink-soft" />
+              <span className="flag whitespace-nowrap text-ink">payment received</span>
             </div>
-            <div className="col-span-12 md:col-span-6">
-              <span className="font-display text-xl font-semibold text-flux-white">
+            <div className="min-w-0 flex-1">
+              <span className="font-display text-lg font-semibold text-ink">
                 {last.amountFormatted} {last.asset}
               </span>{" "}
-              <span className="font-mono text-sm text-flux-mute">from {short(last.from)}</span>
+              <span className="font-mono text-sm text-ink-mute">from {short(last.from)}</span>
             </div>
-            <div className="col-span-12 md:col-span-3 md:text-right">
-              <a
-                href={`${explorer}/tx/${last.transactionHash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="small-caps text-flux-lime underline underline-offset-4 hover:text-flux-white"
-              >
-                tx {short(last.transactionHash)} ↗
-              </a>
-            </div>
+            <a
+              href={`${explorer}/tx/${last.transactionHash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="small-caps whitespace-nowrap text-ink-soft underline underline-offset-4 hover:text-ink"
+            >
+              tx {short(last.transactionHash)} ↗
+            </a>
           </motion.div>
         ) : (
           <motion.div
             key="watching"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="relative grid grid-cols-12 items-baseline gap-x-6"
+            className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-2"
           >
-            <div className="col-span-12 flex items-baseline gap-3 md:col-span-3">
+            <div className="flex items-center gap-3">
               <motion.span
-                className={`h-2 w-2 rounded-full ${status === "error" ? "bg-flux-violet" : "bg-flux-cyan"}`}
+                className={`h-2 w-2 rounded-full ${status === "error" ? "bg-ink-mute" : "bg-ink-soft"}`}
                 animate={{ opacity: [1, 0.3, 1], scale: [1, 0.8, 1] }}
                 transition={{ duration: 1.4, repeat: Infinity }}
               />
-              <span className="flag text-flux-mute">live · {chainShortName.toLowerCase()}</span>
+              <span className="flag whitespace-nowrap text-ink-mute">live · {chainShortName.toLowerCase()}</span>
             </div>
-            <div className="col-span-12 md:col-span-6">
-              <span className="font-display text-lg font-medium text-flux-white">
-                {status === "connecting"
-                  ? `Opening stream to ${chainShortName}…`
-                  : status === "error"
-                    ? "Watcher error — reconnecting"
-                    : `Watching ${chainShortName} for incoming ${asset}`}
-              </span>
-            </div>
-            <div className="col-span-12 flex items-baseline justify-between gap-4 md:col-span-3 md:justify-end">
-              <span className="flag text-flux-faint">uptime · {elapsed}</span>
+            <span className="min-w-0 flex-1 font-display text-base font-medium text-ink">
+              {status === "connecting"
+                ? `Opening stream to ${chainShortName}…`
+                : status === "error"
+                  ? "Watcher error — reconnecting"
+                  : `Watching ${chainShortName} for incoming ${asset}`}
+            </span>
+            <div className="flex items-center gap-5">
+              <span className="flag whitespace-nowrap text-ink-faint">uptime · {elapsed}</span>
               <a
                 href={`${explorer}/address/${wallet}`}
                 target="_blank"
                 rel="noreferrer"
-                className="small-caps text-flux-lime underline underline-offset-4 hover:text-flux-white"
+                className="small-caps whitespace-nowrap text-ink-soft underline underline-offset-4 hover:text-ink"
               >
                 wallet ↗
               </a>

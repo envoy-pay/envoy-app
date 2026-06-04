@@ -88,4 +88,6 @@ export const DEFAULT_CHAIN_ID = Number(
   process.env.NEXT_PUBLIC_DEFAULT_CHAIN_ID ?? CELO_MAINNET,
 );
 
-export const DEFAULT_AGENT_ID = process.env.NEXT_PUBLIC_DEFAULT_AGENT_ID ?? "demo";
+// Default agent for the demo flow. #128 is a real ERC-8004 agent registered on
+// Celo Mainnet — override with your own once you mint one via /create.
+export const DEFAULT_AGENT_ID = process.env.NEXT_PUBLIC_DEFAULT_AGENT_ID ?? "128";

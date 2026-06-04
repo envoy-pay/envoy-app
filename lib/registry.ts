@@ -1,6 +1,16 @@
-import { createPublicClient, http, type PublicClient } from "viem";
+import { createPublicClient, http, formatUnits, type PublicClient } from "viem";
 import { erc8004, getEnvoyAddresses } from "envoy-pay";
 import { getCeloChain } from "./chains";
+
+const ERC20_BALANCE_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
 
 export interface ResolvedAgent {
   agentId: string;
@@ -51,4 +61,29 @@ export async function resolveAgent(
     chainId,
     source: "registry",
   };
+}
+
+/**
+ * Live ERC-20 balance read straight off the Celo RPC. Returns a formatted
+ * string (token units) or `null` if the node is unreachable — callers render
+ * this as concrete proof the UI is reading on-chain state, not mock data.
+ */
+export async function getTokenBalance(
+  wallet: `0x${string}`,
+  token: `0x${string}`,
+  decimals: number,
+  chainId: number,
+): Promise<string | null> {
+  try {
+    const client = celoClient(chainId);
+    const raw = (await client.readContract({
+      address: token,
+      abi: ERC20_BALANCE_ABI,
+      functionName: "balanceOf",
+      args: [wallet],
+    })) as bigint;
+    return formatUnits(raw, decimals);
+  } catch {
+    return null;
+  }
 }

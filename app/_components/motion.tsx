@@ -4,6 +4,7 @@ import {
   motion,
   useInView,
   useMotionValue,
+  useReducedMotion,
   useSpring,
   useTransform,
   type Variants,
@@ -11,6 +12,72 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 const easeOut = [0.16, 1, 0.3, 1] as const;
+
+/**
+ * Terminal-style typewriter. Types each phrase out, holds, deletes, and moves to
+ * the next — looping. A single phrase types once and stays. The full first phrase
+ * is exposed to screen readers; the animated text is aria-hidden. Honors
+ * prefers-reduced-motion (renders the first phrase, no animation).
+ */
+export function Typewriter({
+  phrases,
+  typingMs = 42,
+  deletingMs = 22,
+  holdMs = 2400,
+  startDelayMs = 250,
+  className,
+  caretClassName = "caret",
+}: {
+  phrases: string[];
+  typingMs?: number;
+  deletingMs?: number;
+  holdMs?: number;
+  startDelayMs?: number;
+  className?: string;
+  caretClassName?: string;
+}) {
+  const reduce = useReducedMotion();
+  const [index, setIndex] = useState(0);
+  const [text, setText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [started, setStarted] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setStarted(true), startDelayMs);
+    return () => clearTimeout(t);
+  }, [startDelayMs]);
+
+  useEffect(() => {
+    if (reduce || !started) return;
+    const current = phrases[index % phrases.length];
+    let t: ReturnType<typeof setTimeout>;
+
+    if (!deleting) {
+      if (text.length < current.length) {
+        t = setTimeout(() => setText(current.slice(0, text.length + 1)), typingMs);
+      } else if (phrases.length > 1) {
+        t = setTimeout(() => setDeleting(true), holdMs);
+      }
+    } else {
+      if (text.length > 0) {
+        t = setTimeout(() => setText(current.slice(0, text.length - 1)), deletingMs);
+      } else {
+        setDeleting(false);
+        setIndex((v) => v + 1);
+      }
+    }
+    return () => clearTimeout(t);
+  }, [text, deleting, index, started, reduce, phrases, typingMs, deletingMs, holdMs]);
+
+  const shown = reduce ? phrases[0] : text;
+
+  return (
+    <span className={className} aria-label={phrases[0]}>
+      <span aria-hidden="true">{shown}</span>
+      <span className={caretClassName} aria-hidden="true" />
+    </span>
+  );
+}
 
 /** Fade + rise on mount or scroll-into-view. */
 export function Reveal({
@@ -85,6 +152,46 @@ export function StaggerWords({
         </motion.span>
       ))}
     </motion.span>
+  );
+}
+
+/** Animated numbered step list — staggers in on scroll, numbers pop, a connector
+ *  line draws down the left as the steps reveal. */
+export function StepTimeline({ steps }: { steps: [string, string][] }) {
+  const ref = useRef(null);
+  const inView = useInView(ref, { once: true, margin: "-12% 0px" });
+  return (
+    <ol ref={ref} className="relative flex flex-col gap-3">
+      <motion.span
+        aria-hidden
+        className="absolute left-[38px] top-7 bottom-7 hidden w-px origin-top bg-gradient-to-b from-ink/20 to-ink/5 sm:block"
+        initial={{ scaleY: 0 }}
+        animate={inView ? { scaleY: 1 } : {}}
+        transition={{ duration: 0.9, ease: easeOut, delay: 0.2 }}
+      />
+      {steps.map(([head, body], i) => (
+        <motion.li
+          key={i}
+          initial={{ opacity: 0, y: 20 }}
+          animate={inView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6, delay: 0.12 + i * 0.13, ease: easeOut }}
+          className="glass relative flex gap-5 rounded-2xl px-5 py-5"
+        >
+          <motion.span
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={inView ? { scale: 1, opacity: 1 } : {}}
+            transition={{ duration: 0.5, delay: 0.2 + i * 0.13, ease: [0.34, 1.56, 0.64, 1] }}
+            className="relative z-10 mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-ink/10 bg-paper-bright font-mono text-[13px] font-semibold text-ink"
+          >
+            {i + 1}
+          </motion.span>
+          <div>
+            <p className="font-display text-[16px] font-semibold text-ink">{head}</p>
+            <p className="mt-1.5 text-[14px] leading-relaxed text-ink-soft">{body}</p>
+          </div>
+        </motion.li>
+      ))}
+    </ol>
   );
 }
 

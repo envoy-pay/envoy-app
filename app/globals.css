@@ -3,71 +3,114 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
 body {
-  background: theme("colors.flux.ink");
-  color: theme("colors.flux.white");
+  background-color: #ececee;
+  color: theme("colors.ink.DEFAULT");
+}
+
+/* The Locomotive wash — a cool silver→white radial, brightest upper-center,
+   falling off to mid-grey at the edges. Fixed so it never scrolls away. */
+body {
+  background-image: radial-gradient(
+    130% 100% at 68% 2%,
+    #fdfdfe 0%,
+    #f1f1f3 34%,
+    #e2e2e5 66%,
+    #cfd0d4 100%
+  );
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  min-height: 100vh;
 }
 
 ::selection {
-  background: theme("colors.flux.lime");
-  color: theme("colors.flux.ink");
+  background: theme("colors.ink.DEFAULT");
+  color: theme("colors.paper.bright");
 }
 
 @layer base {
   body {
     font-feature-settings: "ss01", "cv01";
+    -webkit-font-smoothing: antialiased;
   }
 }
 
 @layer components {
-  /* Iridescent gradient text */
+  /* Retired rainbow — kept as a no-op so any stray usage stays graphite */
   .iris {
-    background-image: linear-gradient(
-      100deg,
-      #d4ff3f 0%,
-      #4fe9e0 45%,
-      #9b8cff 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .iris-bg {
-    background-image: linear-gradient(100deg, #d4ff3f 0%, #4fe9e0 50%, #9b8cff 100%);
+    color: theme("colors.ink.DEFAULT");
   }
 
-  /* Glass panel */
+  /* Light glass — frosted white card that floats on the silver surface */
   .glass {
-    border: 1px solid rgba(245, 245, 247, 0.08);
+    border: 1px solid rgba(22, 23, 27, 0.08);
     background: linear-gradient(
-        180deg,
-        rgba(245, 245, 247, 0.04),
-        rgba(245, 245, 247, 0.01)
-      ),
-      rgba(13, 15, 28, 0.55);
-    backdrop-filter: blur(10px);
+      180deg,
+      rgba(255, 255, 255, 0.86),
+      rgba(255, 255, 255, 0.55)
+    );
+    backdrop-filter: blur(14px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 24px 60px -36px rgba(22, 23, 27, 0.28);
   }
   .glass-hot {
-    border: 1px solid rgba(212, 255, 63, 0.3);
-    background: linear-gradient(180deg, rgba(212, 255, 63, 0.06), transparent),
-      rgba(13, 15, 28, 0.6);
+    border: 1px solid rgba(22, 23, 27, 0.14);
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.94),
+      rgba(255, 255, 255, 0.7)
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 28px 64px -34px rgba(22, 23, 27, 0.34);
   }
 
-  /* Faint grid texture */
-  .grid-faint {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background-image:
-      linear-gradient(rgba(245, 245, 247, 0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(245, 245, 247, 0.025) 1px, transparent 1px);
-    background-size: 56px 56px;
-    mask-image: radial-gradient(ellipse 75% 60% at 50% 30%, black, transparent 85%);
+  /* White Locomotive-style pill */
+  .pill {
+    border: 1px solid rgba(22, 23, 27, 0.1);
+    background: linear-gradient(180deg, #ffffff, #f4f4f5);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 10px 24px -16px rgba(22, 23, 27, 0.3);
+  }
+  .pill-dark {
+    background: linear-gradient(180deg, #1d1e24, #0d0e12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 16px 34px -16px rgba(13, 14, 18, 0.6);
+  }
+
+  /* Blinking block caret, à la a terminal prompt */
+  .caret {
+    display: inline-block;
+    width: 0.46ch;
+    height: 0.92em;
+    margin-left: 0.14em;
+    vertical-align: -0.06em;
+    background: currentColor;
+    animation: caretBlink 1.05s steps(1) infinite;
+  }
+
+  /* Mono input used on /create and /pay */
+  .field {
+    width: 100%;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(22, 23, 27, 0.1);
+    background: rgba(255, 255, 255, 0.7);
+    padding: 0.6rem 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: #16171b;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .field:focus {
+    border-color: rgba(22, 23, 27, 0.3);
   }
 
   .small-caps {
@@ -86,13 +129,29 @@ body {
   }
 }
 
-main, header, footer, section {
+/* Fine grain — a whisper of texture so the gradient never reads as flat/AI. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+main,
+header,
+footer,
+section {
   position: relative;
   z-index: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
