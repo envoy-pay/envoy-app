@@ -25,6 +25,20 @@ const SEMVER = /^\d+\.\d+\.\d+/;
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 const PERIOD = 86_400; // 1-day spending window for the policy
 
+// Quick-add suggestions for the capabilities field. `x402-payments` is the gate
+// a merchant checks before serving a paid request; the rest are descriptive tags.
+const SUGGESTED_CAPS = [
+  "x402-payments",
+  "research",
+  "summarization",
+  "web-search",
+  "data-analysis",
+  "code-generation",
+  "translation",
+  "monitoring",
+  "mcp",
+];
+
 type StepState = "idle" | "active" | "done" | "skip" | "error";
 interface Step {
   key: string;
@@ -104,6 +118,12 @@ export default function CreatePage() {
         .filter(Boolean),
     [capabilities],
   );
+
+  // Tap a suggestion chip to add/remove it from the comma-separated field.
+  function toggleCap(cap: string) {
+    const next = caps.includes(cap) ? caps.filter((c) => c !== cap) : [...caps, cap];
+    setCapabilities(next.join(", "));
+  }
 
   // Card as it will be stored (owner = your wallet, payment address = the agent's
   // generated signing wallet). Zero placeholders keep the byte estimate honest.
@@ -439,6 +459,30 @@ export default function CreatePage() {
                 className="field"
               />
             </Field>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {SUGGESTED_CAPS.map((cap) => {
+                const active = caps.includes(cap);
+                const gate = cap === "x402-payments";
+                return (
+                  <button
+                    key={cap}
+                    type="button"
+                    onClick={() => toggleCap(cap)}
+                    title={gate ? "required for your agent to pay 402-gated services" : undefined}
+                    className={`rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+                      active
+                        ? "border-ink bg-ink text-paper-bright"
+                        : gate
+                          ? "border-ink/40 bg-paper-bright/60 text-ink hover:border-ink/60"
+                          : "border-ink/10 bg-paper-bright/40 text-ink-soft hover:border-ink/25"
+                    }`}
+                  >
+                    {active ? "✓ " : gate ? "★ " : "+ "}
+                    {cap}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="mt-4">
