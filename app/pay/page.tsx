@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   createPublicClient,
+  createWalletClient,
   decodeEventLog,
   formatUnits,
   http,
@@ -11,6 +12,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { celo } from "viem/chains";
 import { Masthead } from "@/app/_components/Masthead";
 import { useWallet } from "@/app/_components/WalletProvider";
@@ -61,7 +63,17 @@ const STEPS_TK: Step[] = [
   { key: "settle", label: "Sign & settle pay() in enclave", state: "idle" },
 ];
 
-type PayMode = "wallet" | "turnkey";
+// Self-custody: sign with the agent's own key, pasted + held client-side (never
+// sent to a server). Same on-chain steps as wallet mode — the signer is the agent.
+const STEPS_AK: Step[] = [
+  { key: "connect", label: "Verify agent signing key", state: "idle" },
+  { key: "limit", label: "Spending policy on-chain", state: "idle" },
+  { key: "approve", label: "Approve cUSD allowance", state: "idle" },
+  { key: "sign", label: "Sign EIP-712 payment authorization", state: "idle" },
+  { key: "settle", label: "EnvoyFacilitator.pay() settles", state: "idle" },
+];
+
+type PayMode = "wallet" | "turnkey" | "agentkey";
 
 interface Settled {
   txHash: string;
@@ -78,7 +90,7 @@ function randHex(bytes: number): Hex {
 }
 
 export default function PayPage() {
-  const { available, provider } = useWallet();
+  const { available, provider, account } = useWallet();
   const chain = getCeloChain(CHAIN_ID);
   const { facilitator, identityRegistry } = getEnvoyAddresses(CHAIN_ID);
   const token = chain.assets.cUSD.address;
@@ -88,8 +100,15 @@ export default function PayPage() {
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("0.001");
 
-  const [mode, setMode] = useState<PayMode>("wallet");
+  const [mode, setMode] = useState<PayMode>("agentkey");
   const [turnkeyAvailable, setTurnkeyAvailable] = useState<boolean | null>(null);
+  const [agentKey, setAgentKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+
+  // The connected wallet's own agents — populates the agent-id picker.
+  const [agents, setAgents] = useState<{ agentId: string; agentWallet: string; walletTail: string }[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [manualId, setManualId] = useState(false);
 
   const [steps, setSteps] = useState<Step[]>(STEPS);
   const [running, setRunning] = useState(false);
@@ -107,8 +126,43 @@ export default function PayPage() {
     };
   }, []);
 
+  // Load the agents this wallet owns whenever the connected account changes.
+  useEffect(() => {
+    if (!account) {
+      setAgents([]);
+      return;
+    }
+    let live = true;
+    setAgentsLoading(true);
+    fetch(`/api/agents?owner=${account}&chain=${CHAIN_ID}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!live) return;
+        const list = Array.isArray(d?.agents) ? d.agents : [];
+        setAgents(list);
+        // Pre-select the wallet's newest agent unless the current id is already theirs.
+        if (list.length) {
+          setAgentId((cur) => (list.some((a: { agentId: string }) => a.agentId === cur) ? cur : list[0].agentId));
+        }
+      })
+      .catch(() => live && setAgents([]))
+      .finally(() => live && setAgentsLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [account]);
+
   function patch(key: string, state: StepState, note?: string) {
     setSteps((s) => s.map((x) => (x.key === key ? { ...x, state, note } : x)));
+  }
+
+  // Switch signer mode and reset the tracker to that mode's step list.
+  function chooseMode(m: PayMode) {
+    setMode(m);
+    setError(null);
+    setSettled(null);
+    const base = m === "turnkey" ? STEPS_TK : m === "agentkey" ? STEPS_AK : STEPS;
+    setSteps(base.map((s) => ({ ...s, state: "idle", note: undefined })));
   }
 
   async function run() {
@@ -377,129 +431,378 @@ export default function PayPage() {
     }
   }
 
+  // Self-custody autonomy: the agent signs with its OWN key, pasted and held only
+  // in this browser tab (never sent anywhere). Mirrors the CLI demo's AGENT_PRIVATE_KEY:
+  // same on-chain steps as wallet mode, but the signer is the agent itself.
+  async function runAgentKey() {
+    setError(null);
+    setSettled(null);
+    setSteps(STEPS_AK.map((s) => ({ ...s, state: "idle", note: undefined })));
+    setRunning(true);
+
+    try {
+      if (!/^\d+$/.test(agentId.trim())) throw new Error("Enter a numeric agent id.");
+      const id = BigInt(agentId.trim());
+      const merchantAddr = merchant.trim() as Address;
+      if (!/^0x[a-fA-F0-9]{40}$/.test(merchantAddr)) throw new Error("Enter a valid merchant address.");
+      if (!/^\d*\.?\d+$/.test(amount.trim())) throw new Error("Enter a valid cUSD amount.");
+      const value = parseUnits(amount.trim(), decimals);
+      if (value <= 0n) throw new Error("Amount must be greater than zero.");
+
+      // normalize + validate the agent's signing key (stays client-side only)
+      let hex = agentKey.trim();
+      if (hex.startsWith("0x") || hex.startsWith("0X")) hex = hex.slice(2);
+      if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+        throw new Error("Enter the agent's 64-character hex private key (the one shown once at /create).");
+      }
+      const account = privateKeyToAccount(`0x${hex}` as Hex);
+      const walletClient = createWalletClient({ account, chain: celo, transport: http(chain.rpcUrl) });
+
+      // 1 — verify this key IS the agent's authorized signing wallet (fail fast)
+      patch("connect", "active");
+      const agentWallet = (await READ_CLIENT.readContract({
+        address: identityRegistry,
+        abi: ERC8004_IDENTITY_ABI,
+        functionName: "getAgentWallet",
+        args: [id],
+      })) as Address;
+      if (agentWallet === ZERO_ADDR) throw new Error(`Agent #${agentId} has no signing wallet set.`);
+      if (agentWallet.toLowerCase() !== account.address.toLowerCase()) {
+        throw new Error(
+          `This key is ${account.address.slice(0, 8)}… — not agent #${agentId}'s signing wallet (${agentWallet.slice(0, 8)}…). Paste the key shown when you created the agent.`,
+        );
+      }
+      patch("connect", "done", `${account.address.slice(0, 6)}…${account.address.slice(-4)} = agent #${agentId}`);
+
+      // 2 — ensure a spending limit covers this payment
+      patch("limit", "active");
+      const limit = (await READ_CLIENT.readContract({
+        address: facilitator,
+        abi: ENVOY_FACILITATOR_ABI,
+        functionName: "getLimit",
+        args: [id, token],
+      })) as {
+        perTx: bigint;
+        perPeriod: bigint;
+        spentInPeriod: bigint;
+        periodStart: bigint;
+        periodLen: number;
+        enabled: boolean;
+      };
+      const nowSec = BigInt(Math.floor(Date.now() / 1000));
+      const windowActive = nowSec < limit.periodStart + BigInt(limit.periodLen);
+      const remaining = limit.perPeriod - (windowActive ? limit.spentInPeriod : 0n);
+      if (limit.enabled && limit.perTx >= value && remaining >= value) {
+        patch("limit", "skip", "already set");
+      } else {
+        // Only the owner can set policy — the agent's signing key usually isn't the owner.
+        const authorized = (await READ_CLIENT.readContract({
+          address: identityRegistry,
+          abi: ERC8004_IDENTITY_ABI,
+          functionName: "isAuthorizedOrOwner",
+          args: [account.address, id],
+        })) as boolean;
+        if (!authorized) {
+          throw new Error(
+            "No (or too low) spending policy, and this agent key isn't the owner. Set the policy from the owner wallet at /create, then retry.",
+          );
+        }
+        const tx = await walletClient.writeContract({
+          account,
+          chain: celo,
+          address: facilitator,
+          abi: ENVOY_FACILITATOR_ABI,
+          functionName: "setLimit",
+          args: [id, token, value, value * 100n, PERIOD],
+        });
+        await READ_CLIENT.waitForTransactionReceipt({ hash: tx });
+        patch("limit", "done", "policy set");
+      }
+
+      // 3 — ensure the facilitator can pull cUSD from the agent wallet
+      patch("approve", "active");
+      const allowance = (await READ_CLIENT.readContract({
+        address: token,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [account.address, facilitator],
+      })) as bigint;
+      if (allowance >= value) {
+        patch("approve", "skip", "sufficient allowance");
+      } else {
+        const tx = await walletClient.writeContract({
+          account,
+          chain: celo,
+          address: token,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [facilitator, value],
+        });
+        await READ_CLIENT.waitForTransactionReceipt({ hash: tx });
+        patch("approve", "done", "approved");
+      }
+
+      // 4 — the agent signs the typed payment authorization with its own key
+      patch("sign", "active");
+      const auth: PaymentAuth = {
+        agentId: id,
+        token,
+        merchant: merchantAddr,
+        amount: value,
+        challengeId: randHex(32),
+        nonce: BigInt(randHex(32)),
+        deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      };
+      const signature = await walletClient.signTypedData({
+        account,
+        ...paymentAuthTypedData({ chainId: CHAIN_ID, facilitator, auth }),
+      });
+      patch("sign", "done", "authorized");
+
+      // 5 — settle on-chain (the agent pays its own gas)
+      patch("settle", "active");
+      const tx = await walletClient.writeContract({
+        account,
+        chain: celo,
+        address: facilitator,
+        abi: ENVOY_FACILITATOR_ABI,
+        functionName: "pay",
+        args: [auth, signature],
+      });
+      const receipt = await READ_CLIENT.waitForTransactionReceipt({ hash: tx });
+
+      let fee = 0n;
+      let amt = value;
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== facilitator.toLowerCase()) continue;
+        try {
+          const d = decodeEventLog({ abi: ENVOY_FACILITATOR_ABI, data: log.data, topics: log.topics });
+          if (d.eventName === "Settled") {
+            const a = d.args as { amount: bigint; fee: bigint };
+            amt = a.amount;
+            fee = a.fee;
+          }
+        } catch {
+          /* not Settled */
+        }
+      }
+      patch("settle", "done", "Settled ✓");
+      setSettled({
+        txHash: tx,
+        amount: formatUnits(amt, decimals),
+        fee: formatUnits(fee, decimals),
+        net: formatUnits(amt - fee, decimals),
+        merchant: merchantAddr,
+      });
+    } catch (err: unknown) {
+      const msg =
+        (err as { shortMessage?: string })?.shortMessage ??
+        (err as Error)?.message ??
+        "Payment failed.";
+      setError(msg);
+      setSteps((s) => s.map((x) => (x.state === "active" ? { ...x, state: "error" } : x)));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const activeStep = steps.find((s) => s.state === "active");
+  const lastNote = [...steps].reverse().find((s) => s.note)?.note;
+  const statusLine = activeStep ? activeStep.label : lastNote;
+
   return (
     <>
       <Masthead />
 
-      <main className="mx-auto max-w-[680px] px-6 pb-28 pt-16">
+      <main className="mx-auto max-w-[620px] px-6 pb-28 pt-16">
         <span className="small-caps text-ink-mute">pay out · x402 / mpp</span>
-        <h1 className="mt-4 font-display text-[clamp(34px,5vw,54px)] font-extrabold leading-[1.02] tracking-[-0.035em] text-ink">
-          Watch me pay a merchant.
+        <h1 className="mt-3 font-display text-[clamp(30px,4.5vw,46px)] font-extrabold leading-[1.04] tracking-[-0.035em] text-ink">
+          Pay a merchant.
         </h1>
-        <p className="mt-5 text-[17px] leading-relaxed text-ink-soft">
-          A service answered <span className="font-mono text-ink">402</span>. My wallet
-          signs an EIP-712 authorization, and the immutable{" "}
-          <span className="font-medium text-ink">EnvoyFacilitator</span> settles it on
-          Celo — net to the merchant, fee to the treasury, in one atomic transaction.
-        </p>
-        <p className="mt-3 font-mono text-[12px] text-ink-faint">
-          {mode === "turnkey"
-            ? `agent #${agentId} signs in its Turnkey enclave — no wallet to connect · needs cUSD + a little CELO for gas · Celo Mainnet`
-            : `connect agent #${agentId}'s signing wallet · needs cUSD + a little CELO for gas · Celo Mainnet`}
+        <p className="mt-3 max-w-[34rem] text-[15px] leading-relaxed text-ink-soft">
+          The agent signs an EIP-712 authorization; the immutable{" "}
+          <span className="font-medium text-ink">EnvoyFacilitator</span> settles it on Celo —
+          net to the merchant, fee to the treasury, in one transaction.
         </p>
 
-        {/* the simulated challenge */}
-        <div className="glass mt-9 rounded-[24px] p-6 md:p-7">
-          <p className="small-caps text-ink-faint">who signs</p>
-          <div className="mt-2.5 flex gap-2">
-            <ModeBtn active={mode === "wallet"} onClick={() => setMode("wallet")}>
-              Connected wallet
-            </ModeBtn>
-            <ModeBtn
-              active={mode === "turnkey"}
-              disabled={!turnkeyAvailable}
-              onClick={() => setMode("turnkey")}
-            >
-              Turnkey agent <span className="text-ink-faint">enclave</span>
-            </ModeBtn>
+        {/* control panel */}
+        <div className="glass mt-7 rounded-[22px] p-5 md:p-6">
+          {/* who signs + chain */}
+          <div className="flex items-center justify-between gap-3">
+            <Segmented
+              value={mode}
+              onChange={chooseMode}
+              options={[
+                { value: "agentkey", label: "Agent key" },
+                { value: "wallet", label: "Wallet" },
+                { value: "turnkey", label: "Enclave", disabled: !turnkeyAvailable },
+              ]}
+            />
+            <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-ink/10 px-2.5 py-1 font-mono text-[10px] text-ink-faint sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-silver" />
+              Celo · cUSD
+            </span>
           </div>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
-            {turnkeyAvailable === false
-              ? "turnkey not configured on this server — set TURNKEY_* in web/.env.local to enable enclave mode"
-              : mode === "turnkey"
-                ? "the agent's enclave key signs + submits everything — no human wallet in the loop"
-                : "connect the agent's signing wallet (self-custody) to sign + settle"}
-          </p>
 
-          <p className="mt-5 small-caps text-ink-faint">payment challenge</p>
-          <div className="mt-3 grid gap-4 sm:grid-cols-3">
-            <Field label="agent id">
+          {mode === "agentkey" && (
+            <div className="relative mt-4">
               <input
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                className="field"
+                type={showKey ? "text" : "password"}
+                value={agentKey}
+                onChange={(e) => setAgentKey(e.target.value)}
+                placeholder="agent signing key · 0x…"
+                autoComplete="off"
+                spellCheck={false}
+                className="field pr-14 font-mono"
               />
+              <button
+                type="button"
+                onClick={() => setShowKey((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 small-caps text-ink-faint transition-colors hover:text-ink"
+              >
+                {showKey ? "hide" : "show"}
+              </button>
+            </div>
+          )}
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_0.6fr]">
+            <Field label="agent">
+              {account && agents.length > 0 && !manualId ? (
+                <select
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  className="field"
+                >
+                  {agents.map((a) => {
+                    const selfSigned =
+                      !!account && a.agentWallet.toLowerCase() === account.toLowerCase();
+                    return (
+                      <option key={a.agentId} value={a.agentId}>
+                        {selfSigned
+                          ? `#${a.agentId} · you sign`
+                          : `#${a.agentId} · key 0x…${a.walletTail}`}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <input
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  placeholder="agent id"
+                  className="field"
+                />
+              )}
             </Field>
-            <Field label="amount (cUSD)">
+            <Field label="amount">
               <input value={amount} onChange={(e) => setAmount(e.target.value)} className="field" />
             </Field>
+          </div>
+
+          <div className="mt-3">
             <Field label="merchant">
               <input
                 value={merchant}
                 onChange={(e) => setMerchant(e.target.value)}
                 placeholder="0x…"
-                className="field"
+                className="field font-mono"
               />
             </Field>
           </div>
 
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-ink-faint">
+            {account && agents.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setManualId((v) => !v)}
+                className="transition-colors hover:text-ink"
+              >
+                {manualId ? `pick from my agents (${agents.length})` : "or type an id"}
+              </button>
+            )}
+            {account && agentsLoading && <span>finding your agents…</span>}
+            {account && !agentsLoading && agents.length === 0 && <span>no agents found — type an id</span>}
+            {!account && <span>connect a wallet to list your agents</span>}
+            {mode === "agentkey" && <span>· key stays in your browser</span>}
+          </div>
+
           <button
-            onClick={mode === "turnkey" ? runTurnkey : run}
-            disabled={running || (mode === "wallet" ? !available : !turnkeyAvailable)}
-            className="pill-dark mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3.5 text-[15px] font-semibold text-slate-text disabled:opacity-60"
+            onClick={mode === "turnkey" ? runTurnkey : mode === "agentkey" ? runAgentKey : run}
+            disabled={
+              running ||
+              (mode === "wallet"
+                ? !available
+                : mode === "turnkey"
+                  ? !turnkeyAvailable
+                  : !agentKey.trim())
+            }
+            className="pill-dark mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[15px] font-semibold text-slate-text disabled:opacity-60"
           >
-            {running ? "Settling…" : mode === "turnkey" ? "Pay from enclave" : "Sign & pay"}
+            {running ? "Settling…" : "Sign & pay"}
             {!running && <span className="font-mono text-xs">↗</span>}
           </button>
 
           {mode === "wallet" && !available && (
-            <p className="mt-3 text-center font-mono text-[11px] text-ink-faint">
-              No browser wallet detected — install MetaMask or Valora.
+            <p className="mt-2.5 text-center font-mono text-[11px] text-ink-faint">
+              No browser wallet — install MetaMask or Valora.
             </p>
           )}
-          {error && (
-            <p className="mt-4 rounded-xl border border-ink/10 bg-paper-dim/60 px-4 py-3 text-[13px] text-ink-soft">
-              {error}
+          {mode === "turnkey" && turnkeyAvailable === false && (
+            <p className="mt-2.5 text-center font-mono text-[11px] text-ink-faint">
+              Enclave off — set TURNKEY_* in web/.env.local.
             </p>
           )}
         </div>
 
-        {/* step tracker */}
-        <ol className="mt-5 flex flex-col gap-2.5">
-          {steps.map((s, i) => (
-            <li key={s.key} className="glass flex items-center gap-4 rounded-2xl px-5 py-4">
-              <StepDot state={s.state} n={i + 1} />
-              <div className="flex-1">
-                <p className={`text-[15px] font-medium ${s.state === "idle" ? "text-ink-faint" : "text-ink"}`}>
-                  {s.label}
-                </p>
-                {s.note && <p className="mt-0.5 font-mono text-[11px] text-ink-mute">{s.note}</p>}
-              </div>
-            </li>
-          ))}
-        </ol>
+        {error && (
+          <p className="mt-4 rounded-xl border border-ink/10 bg-paper-dim/60 px-4 py-3 text-[13px] text-ink-soft">
+            {error}
+          </p>
+        )}
+
+        {/* automated pipeline — a slim progress strip, not a manual checklist */}
+        <div className="glass mt-4 rounded-2xl px-5 py-4">
+          <div className="flex items-center">
+            {steps.map((s, i) => (
+              <Fragment key={s.key}>
+                <StepDot state={s.state} n={i + 1} />
+                {i < steps.length - 1 && (
+                  <div
+                    className={`mx-2 h-px flex-1 transition-colors ${
+                      s.state === "done" || s.state === "skip" ? "bg-ink/30" : "bg-ink/[0.12]"
+                    }`}
+                  />
+                )}
+              </Fragment>
+            ))}
+          </div>
+          <p className="mt-3 text-center font-mono text-[11px] text-ink-mute">
+            {running && <span className="mr-1.5 inline-block animate-pulse">●</span>}
+            {statusLine ?? "ready to settle"}
+          </p>
+        </div>
 
         {settled && (
-          <div className="glass-hot mt-5 rounded-[24px] p-6 md:p-7">
+          <div className="glass-hot mt-4 rounded-[22px] p-5 md:p-6">
             <p className="flag text-ink">settled on celo ✓</p>
-            <div className="mt-4 grid grid-cols-3 gap-4">
+            <div className="mt-3 grid grid-cols-3 gap-3">
               <Stat k="amount" v={`${settled.amount} cUSD`} />
               <Stat k="to merchant" v={`${settled.net} cUSD`} />
-              <Stat k="treasury fee" v={`${settled.fee} cUSD`} />
+              <Stat k="fee" v={`${settled.fee} cUSD`} />
             </div>
             <a
               href={`${chain.explorer}/tx/${settled.txHash}`}
               target="_blank"
               rel="noreferrer"
-              className="pill mt-5 inline-flex items-center rounded-full px-5 py-2.5 text-[14px] font-medium text-ink"
+              className="pill mt-4 inline-flex items-center rounded-full px-4 py-2 text-[13px] font-medium text-ink"
             >
-              View Settled tx on Celoscan ↗
+              View on Celoscan ↗
             </a>
           </div>
         )}
 
-        <p className="mt-6 text-center font-mono text-[11px] text-ink-faint">
-          facilitator · {facilitator} · Celo Mainnet
+        <p className="mt-6 text-center font-mono text-[10px] text-ink-faint">
+          facilitator {facilitator.slice(0, 10)}…{facilitator.slice(-6)} · Celo Mainnet
         </p>
       </main>
     </>
@@ -515,29 +818,31 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function ModeBtn({
-  active,
-  onClick,
-  disabled,
-  children,
+function Segmented({
+  value,
+  onChange,
+  options,
 }: {
-  active: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
+  value: PayMode;
+  onChange: (v: PayMode) => void;
+  options: { value: PayMode; label: string; disabled?: boolean }[];
 }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-full px-4 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        active
-          ? "pill-dark text-slate-text"
-          : "border border-ink/10 bg-paper-bright/50 text-ink-soft hover:border-ink/20"
-      }`}
-    >
-      {children}
-    </button>
+    <div className="inline-flex rounded-full border border-ink/10 bg-paper-bright/40 p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          disabled={o.disabled}
+          onClick={() => onChange(o.value)}
+          className={`rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            value === o.value ? "pill-dark text-slate-text" : "text-ink-soft hover:text-ink"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -553,28 +858,28 @@ function Stat({ k, v }: { k: string; v: string }) {
 function StepDot({ state, n }: { state: StepState; n: number }) {
   if (state === "done" || state === "skip") {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink text-[12px] text-paper-bright">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink text-[11px] text-paper-bright">
         ✓
       </span>
     );
   }
   if (state === "error") {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-ink/30 text-[12px] text-ink">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-ink/40 text-[11px] text-ink">
         ✕
       </span>
     );
   }
   if (state === "active") {
     return (
-      <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
-        <span className="absolute h-7 w-7 animate-ping rounded-full bg-ink/20" />
+      <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
+        <span className="absolute h-6 w-6 animate-ping rounded-full bg-ink/20" />
         <span className="relative h-2.5 w-2.5 rounded-full bg-ink" />
       </span>
     );
   }
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-ink/15 font-mono text-[12px] text-ink-faint">
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-ink/15 font-mono text-[11px] text-ink-faint">
       {n}
     </span>
   );
