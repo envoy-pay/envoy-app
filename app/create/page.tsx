@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { decodeEventLog, parseUnits, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { Masthead } from "@/app/_components/Masthead";
@@ -13,12 +13,13 @@ import {
   ENVOY_FACILITATOR_ABI,
   agentWalletSetTypedData,
 } from "@/lib/abi";
-import { CELO_MAINNET, CELO_SEPOLIA, getCeloChain } from "@/lib/chains";
+import { CELO_MAINNET, getCeloChain } from "@/lib/chains";
 import {
   dataUriSize,
   encodeDataURI,
   type AgentCardData,
 } from "@/lib/agentCard";
+import { SelfVerify } from "./SelfVerify";
 
 const SEMVER = /^\d+\.\d+\.\d+/;
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
@@ -37,6 +38,7 @@ type Custody = "self" | "turnkey";
 interface Result {
   agentId: string;
   agentAddress: Address;
+  owner: Address;
   registerTx: string;
   bindTx: string;
   policyTx: string | null;
@@ -51,7 +53,8 @@ interface GeneratedKey {
 }
 
 export default function CreatePage() {
-  const [chainId, setChainId] = useState<number>(CELO_MAINNET);
+  // Mainnet-only — the EnvoyFacilitator is deployed on Celo Mainnet.
+  const chainId = CELO_MAINNET;
   const [name, setName] = useState("");
   const [version, setVersion] = useState("1.0.0");
   const [capabilities, setCapabilities] = useState("");
@@ -339,6 +342,7 @@ export default function CreatePage() {
       setResult({
         agentId: agentId.toString(),
         agentAddress,
+        owner: account,
         registerTx,
         bindTx,
         policyTx,
@@ -358,63 +362,56 @@ export default function CreatePage() {
     }
   }
 
+  const activeStep = steps?.find((s) => s.state === "active");
+  const lastNote = steps ? [...steps].reverse().find((s) => s.note)?.note : undefined;
+  const createStatus = activeStep ? activeStep.label : lastNote;
+
   return (
     <>
       <Masthead />
 
-      <main className="mx-auto max-w-[680px] px-6 pb-28 pt-16">
+      <main className="mx-auto max-w-[940px] px-6 pb-28 pt-16">
         <span className="small-caps text-ink-mute">mint · erc-8004 · autonomous</span>
-        <h1 className="mt-4 font-display text-[clamp(34px,5vw,54px)] font-extrabold leading-[1.02] tracking-[-0.035em] text-ink">
-          Give your agent its own account.
+        <h1 className="mt-3 font-display text-[clamp(30px,4.5vw,46px)] font-extrabold leading-[1.04] tracking-[-0.035em] text-ink">
+          Give your agent an account.
         </h1>
-        <p className="mt-5 text-[17px] leading-relaxed text-ink-soft">
-          Register a fresh ERC-8004 identity on Celo. You keep the NFT and set the
-          spending limits; the agent gets <span className="font-medium text-ink">its own
-          signing key</span> and pays autonomously within them — no wallet pop-ups at
-          run time, the card written <span className="font-medium text-ink">on-chain</span>.
+        <p className="mt-3 max-w-[40rem] text-[15px] leading-relaxed text-ink-soft">
+          Register an ERC-8004 identity on Celo. You keep the NFT and set the limits; the
+          agent gets <span className="font-medium text-ink">its own signing key</span> and
+          pays within them — no wallet pop-ups at run time.
         </p>
 
-        {/* builder */}
-        <div className="glass mt-9 rounded-[24px] p-6 md:p-7">
-          <p className="small-caps text-ink-faint">network</p>
-          <div className="mt-2.5 flex gap-2">
-            <NetBtn active={chainId === CELO_SEPOLIA} onClick={() => setChainId(CELO_SEPOLIA)}>
-              Celo Sepolia <span className="text-ink-faint">testnet</span>
-            </NetBtn>
-            <NetBtn active={chainId === CELO_MAINNET} onClick={() => setChainId(CELO_MAINNET)}>
-              Celo Mainnet <span className="text-ink-faint">real gas</span>
-            </NetBtn>
-          </div>
-          {chainId === CELO_SEPOLIA && (
-            <p className="mt-2.5 font-mono text-[11px] leading-relaxed text-ink-faint">
-              note: the facilitator (spending policy + /pay) is Celo Mainnet only — on
-              Sepolia we mint + bind the key, but skip the on-chain limit. Mint on Mainnet
-              for the full autonomous flow.
+        {/* builder — inputs left, live preview + action right */}
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_330px] lg:items-start">
+          <div className="glass rounded-[22px] p-5 md:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="small-caps text-ink-faint">key custody</p>
+                <div className="mt-2">
+                  <Segmented
+                    value={custody}
+                    onChange={(v) => setCustody(v)}
+                    options={[
+                      { value: "self", label: "Self-custody" },
+                      { value: "turnkey", label: "Turnkey TEE", disabled: !turnkeyAvailable },
+                    ]}
+                  />
+                </div>
+              </div>
+              <span className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ink/10 px-2.5 py-1 font-mono text-[10px] text-ink-faint">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-silver" />
+                Celo Mainnet
+              </span>
+            </div>
+            <p className="mt-3 font-mono text-[11px] leading-relaxed text-ink-faint">
+              {custody === "turnkey"
+                ? "key lives in Turnkey's enclave — non-exportable, signs via API"
+                : turnkeyAvailable === false
+                  ? "self-custody · key shown once (Turnkey off — set TURNKEY_* to enable)"
+                  : "self-custody · key generated in-browser, shown once"}
             </p>
-          )}
 
-          <p className="mt-6 small-caps text-ink-faint">key custody</p>
-          <div className="mt-2.5 flex gap-2">
-            <NetBtn active={custody === "self"} onClick={() => setCustody("self")}>
-              Self-custody <span className="text-ink-faint">reveal once</span>
-            </NetBtn>
-            <NetBtn
-              active={custody === "turnkey"}
-              disabled={!turnkeyAvailable}
-              onClick={() => setCustody("turnkey")}
-            >
-              Turnkey <span className="text-ink-faint">TEE</span>
-            </NetBtn>
-          </div>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-ink-faint">
-            {turnkeyAvailable === false
-              ? "turnkey not configured on this server — set TURNKEY_* in web/.env.local to enable. self-custody works now."
-              : custody === "turnkey"
-                ? "key born inside Turnkey's enclave (non-exportable), signs via API — nothing to copy out"
-                : "key generated in this browser, shown once — you store it in your agent's secrets"}
-          </p>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_auto]">
+          <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_7rem]">
             <Field label="name">
               <input
                 value={name}
@@ -428,7 +425,7 @@ export default function CreatePage() {
                 value={version}
                 onChange={(e) => setVersion(e.target.value)}
                 placeholder="1.0.0"
-                className="field sm:w-28"
+                className="field"
               />
             </Field>
           </div>
@@ -438,147 +435,141 @@ export default function CreatePage() {
               <input
                 value={capabilities}
                 onChange={(e) => setCapabilities(e.target.value)}
-                placeholder="research, summarization, x402-payments"
+                placeholder="research, summarization, x402-payments  ·  comma-separated"
                 className="field"
               />
             </Field>
-            <p className="mt-1.5 font-mono text-[11px] text-ink-faint">comma-separated</p>
           </div>
 
           <div className="mt-4">
-            <Field label="description (optional)">
+            <Field label="description">
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Summarizes papers and pays per API call."
+                placeholder="What it does · optional"
                 className="field"
               />
             </Field>
           </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="a2a endpoint (optional)">
+            <Field label="a2a endpoint">
               <input
                 value={a2a}
                 onChange={(e) => setA2a(e.target.value)}
-                placeholder="https://api.bot.xyz/a2a"
-                className="field"
+                placeholder="https://… · optional"
+                className="field font-mono text-[13px]"
               />
             </Field>
-            <Field label="payment endpoint (optional)">
+            <Field label="payment endpoint">
               <input
                 value={payment}
                 onChange={(e) => setPayment(e.target.value)}
-                placeholder="https://api.bot.xyz/pay"
-                className="field"
+                placeholder="https://… · optional"
+                className="field font-mono text-[13px]"
               />
             </Field>
           </div>
 
-          {/* autonomous spending policy */}
-          <div className="mt-6 rounded-2xl border border-ink/10 bg-paper-bright/40 p-5">
-            <p className="small-caps text-ink-faint">autonomous spending policy</p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-ink-soft">
-              The hard ceiling the facilitator enforces on-chain. The agent signs its own
-              payments, but can never exceed these — you can rotate or revoke its key any time.
-            </p>
+          {/* spending policy */}
+          <div className="mt-6 rounded-2xl border border-ink/10 bg-paper-bright/40 p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="small-caps text-ink-faint">spending policy</p>
+              <span className="font-mono text-[10px] text-ink-faint">on-chain ceiling</span>
+            </div>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <Field label="max per transaction (cUSD)">
-                <input
-                  value={perTx}
-                  onChange={(e) => setPerTx(e.target.value)}
-                  disabled={!isMainnet}
-                  className="field disabled:opacity-50"
-                />
+              <Field label="max / tx · cUSD">
+                <input value={perTx} onChange={(e) => setPerTx(e.target.value)} className="field" />
               </Field>
-              <Field label="daily cap (cUSD)">
-                <input
-                  value={dailyCap}
-                  onChange={(e) => setDailyCap(e.target.value)}
-                  disabled={!isMainnet}
-                  className="field disabled:opacity-50"
-                />
+              <Field label="daily cap · cUSD">
+                <input value={dailyCap} onChange={(e) => setDailyCap(e.target.value)} className="field" />
               </Field>
             </div>
-            {!isMainnet && (
-              <p className="mt-2 font-mono text-[11px] text-ink-faint">
-                policy disabled on Sepolia — facilitator not deployed there
+            <p className="mt-2 font-mono text-[10px] text-ink-faint">
+              the agent can never exceed this · rotate or revoke anytime
+            </p>
+          </div>
+        </div>
+
+          {/* live preview + action (sticky) */}
+          <div className="flex flex-col gap-4 lg:sticky lg:top-24">
+            <div className="rounded-[22px] border border-ink/10 bg-paper-bright/50 p-5">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="small-caps text-ink-faint">on-chain preview</p>
+                <p className="font-mono text-[10px] text-ink-mute">≈ {onChainBytes} b</p>
+              </div>
+              <div className="mt-3 flex items-baseline gap-2">
+                <p className="font-display text-lg font-bold tracking-tight text-ink">
+                  {name.trim() || "Unnamed agent"}
+                </p>
+                <span className="font-mono text-[11px] text-ink-faint">v{version.trim() || "0.0.0"}</span>
+              </div>
+              {description.trim() && (
+                <p className="mt-1.5 text-[13px] leading-relaxed text-ink-soft">{description.trim()}</p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {caps.length === 0 ? (
+                  <span className="font-mono text-[11px] text-ink-faint">no capabilities yet</span>
+                ) : (
+                  caps.map((c) => (
+                    <span
+                      key={c}
+                      className="rounded-full border border-ink/10 bg-paper-bright/80 px-2.5 py-1 font-mono text-[11px] text-ink-soft"
+                    >
+                      {c}
+                    </span>
+                  ))
+                )}
+              </div>
+              <p className="mt-3 font-mono text-[10px] leading-relaxed text-ink-faint">
+                owner → your wallet · signer → generated · {chain.shortName}
+              </p>
+            </div>
+
+            <button
+              onClick={create}
+              disabled={running || !available}
+              className="pill-dark inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-[15px] font-semibold text-slate-text disabled:opacity-60"
+            >
+              {running ? "Creating…" : "Create agent"}
+              {!running && <span className="font-mono text-xs">↗</span>}
+            </button>
+
+            {!available && (
+              <p className="text-center font-mono text-[11px] text-ink-faint">
+                No wallet — install MetaMask or Valora.
+              </p>
+            )}
+            {error && (
+              <p className="rounded-xl border border-ink/10 bg-paper-dim/60 px-4 py-3 text-[13px] text-ink-soft">
+                {error}
               </p>
             )}
           </div>
         </div>
 
-        {/* live preview */}
-        <div className="mt-4 rounded-[24px] border border-ink/10 bg-paper-bright/50 p-6">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="small-caps text-ink-faint">agent card · on-chain preview</p>
-            <p className="font-mono text-[11px] text-ink-mute">≈ {onChainBytes} bytes</p>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <p className="font-display text-lg font-bold tracking-tight text-ink">
-              {name.trim() || "Unnamed agent"}
-            </p>
-            <span className="font-mono text-[11px] text-ink-faint">v{version.trim() || "0.0.0"}</span>
-          </div>
-          {description.trim() && (
-            <p className="mt-1.5 text-[13px] leading-relaxed text-ink-soft">{description.trim()}</p>
-          )}
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {caps.length === 0 ? (
-              <span className="font-mono text-[11px] text-ink-faint">no capabilities yet</span>
-            ) : (
-              caps.map((c) => (
-                <span
-                  key={c}
-                  className="rounded-full border border-ink/10 bg-paper-bright/80 px-2.5 py-1 font-mono text-[11px] text-ink-soft"
-                >
-                  {c}
-                </span>
-              ))
-            )}
-          </div>
-          <p className="mt-3 font-mono text-[11px] text-ink-faint">
-            owner → your wallet · signing wallet → generated for the agent · stored as a
-            data: URI on {chain.shortName}
-          </p>
-        </div>
-
-        <button
-          onClick={create}
-          disabled={running || !available}
-          className="pill-dark mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3.5 text-[15px] font-semibold text-slate-text disabled:opacity-60"
-        >
-          {running ? "Creating agent…" : "Create autonomous agent"}
-          {!running && <span className="font-mono text-xs">↗</span>}
-        </button>
-
-        {!available && (
-          <p className="mt-3 text-center font-mono text-[11px] text-ink-faint">
-            No browser wallet detected — install MetaMask or Valora to mint.
-          </p>
-        )}
-
-        {error && (
-          <p className="mt-4 rounded-xl border border-ink/10 bg-paper-dim/60 px-4 py-3 text-[13px] text-ink-soft">
-            {error}
-          </p>
-        )}
-
-        {/* step tracker */}
+        {/* automated pipeline */}
         {steps && (
-          <ol className="mt-5 flex flex-col gap-2.5">
-            {steps.map((s, i) => (
-              <li key={s.key} className="glass flex items-center gap-4 rounded-2xl px-5 py-4">
-                <StepDot state={s.state} n={i + 1} />
-                <div className="flex-1">
-                  <p className={`text-[15px] font-medium ${s.state === "idle" ? "text-ink-faint" : "text-ink"}`}>
-                    {s.label}
-                  </p>
-                  {s.note && <p className="mt-0.5 font-mono text-[11px] text-ink-mute">{s.note}</p>}
-                </div>
-              </li>
-            ))}
-          </ol>
+          <div className="glass mt-4 rounded-2xl px-5 py-4">
+            <div className="flex items-center">
+              {steps.map((s, i) => (
+                <Fragment key={s.key}>
+                  <StepDot state={s.state} n={i + 1} />
+                  {i < steps.length - 1 && (
+                    <div
+                      className={`mx-2 h-px flex-1 transition-colors ${
+                        s.state === "done" || s.state === "skip" ? "bg-ink/30" : "bg-ink/[0.12]"
+                      }`}
+                    />
+                  )}
+                </Fragment>
+              ))}
+            </div>
+            <p className="mt-3 text-center font-mono text-[11px] text-ink-mute">
+              {running && <span className="mr-1.5 inline-block animate-pulse">●</span>}
+              {createStatus ?? "ready"}
+            </p>
+          </div>
         )}
 
         {/* one-time key reveal (self-custody) — the only time this key is shown */}
@@ -698,6 +689,15 @@ export default function CreatePage() {
           </div>
         )}
 
+        {/* proof-of-human — bind a real human to the agent via a Self Agent ID */}
+        {result && (
+          <SelfVerify
+            chainId={result.chainId}
+            owner={result.owner}
+            agentName={name.trim() || "Envoy agent"}
+          />
+        )}
+
         <p className="mt-6 text-center font-mono text-[11px] text-ink-faint">
           registry · {getEnvoyAddresses(chainId).identityRegistry} on {chain.shortName}
         </p>
@@ -755,57 +755,59 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function NetBtn({
-  active,
-  onClick,
-  disabled,
-  children,
+function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
 }: {
-  active: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; disabled?: boolean }[];
 }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-full px-4 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        active
-          ? "pill-dark text-slate-text"
-          : "border border-ink/10 bg-paper-bright/50 text-ink-soft hover:border-ink/20"
-      }`}
-    >
-      {children}
-    </button>
+    <div className="inline-flex rounded-full border border-ink/10 bg-paper-bright/40 p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          disabled={o.disabled}
+          onClick={() => onChange(o.value)}
+          className={`rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            value === o.value ? "pill-dark text-slate-text" : "text-ink-soft hover:text-ink"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
 function StepDot({ state, n }: { state: StepState; n: number }) {
   if (state === "done" || state === "skip") {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink text-[12px] text-paper-bright">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink text-[11px] text-paper-bright">
         ✓
       </span>
     );
   }
   if (state === "error") {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-ink/30 text-[12px] text-ink">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-ink/40 text-[11px] text-ink">
         ✕
       </span>
     );
   }
   if (state === "active") {
     return (
-      <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
-        <span className="absolute h-7 w-7 animate-ping rounded-full bg-ink/20" />
+      <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
+        <span className="absolute h-6 w-6 animate-ping rounded-full bg-ink/20" />
         <span className="relative h-2.5 w-2.5 rounded-full bg-ink" />
       </span>
     );
   }
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-ink/15 font-mono text-[12px] text-ink-faint">
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-ink/15 font-mono text-[11px] text-ink-faint">
       {n}
     </span>
   );
