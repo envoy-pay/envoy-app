@@ -7,25 +7,25 @@ import { shortAddress } from "@/lib/format";
 import { DEFAULT_AGENT_ID, DEFAULT_CHAIN_ID } from "@/lib/chains";
 
 export const metadata: Metadata = {
-  title: "Get started — Envoy",
+  title: "How it works — Envoy",
   description:
-    "Set up an AI agent with its own on-chain account on Celo: create an ERC-8004 identity, fund it down any rail, and let it pay — in three steps.",
+    "How Envoy gives an AI agent its own on-chain account on Celo: an ERC-8004 identity it owns, a signing key you custody, and atomic cUSD settlement — the full machine, end to end.",
 };
 
 const EXPLORER = "https://celoscan.io";
 
 const TERM: TermLine[] = [
-  { k: "cmd", t: "envoy watch --agent 128 --asset cUSD" },
+  { k: "cmd", t: "envoy demo --agent 128 --pay-per-call" },
   { k: "info", t: "connecting to Celo mainnet · chain 42220" },
-  { k: "ok", t: "stream open · watching 0x53eaF4…0088" },
-  { k: "info", t: "EIP-681 request issued · QR ready" },
-  { k: "dim", t: "waiting for incoming cUSD…" },
-  { k: "ok", t: "payment in   +1.00 cUSD   from 0x9a3b…1f2c" },
-  { k: "dim", t: "tx 0x4c1e…ab90 · block 28,114,552" },
-  { k: "info", t: "agent signs payout · EIP-712 PaymentAuth" },
-  { k: "ok", t: "facilitator.pay()   −0.50 cUSD → merchant" },
-  { k: "dim", t: "fee 0.00 cUSD → treasury · Settled" },
-  { k: "ok", t: "balance updated · every move on-chain ✓" },
+  { k: "ok", t: "agent #128 ready · signing wallet 0x53eaF4…0088" },
+  { k: "info", t: "agent → POST /premium/market-report" },
+  { k: "dim", t: "← 402 Payment Required · x402 asks 0.001 cUSD" },
+  { k: "info", t: "EnvoyClient intercepts the 402 · checks budget policy" },
+  { k: "ok", t: "within policy · signs EIP-712 PaymentAuth" },
+  { k: "info", t: "facilitator.pay() · net → merchant · fee → treasury" },
+  { k: "ok", t: "Settled · tx 0x4c1e…ab90 · block 28,114,552" },
+  { k: "info", t: "agent retries with the on-chain receipt as proof" },
+  { k: "ok", t: "200 OK · paid data received · no human in the loop" },
 ];
 
 const CONTRACTS = [
@@ -104,13 +104,13 @@ export default function HowItWorksPage() {
       <main className="mx-auto max-w-[960px] px-6 pb-28 pt-16">
         {/* ── intro ── */}
         <Reveal className="max-w-[44rem]">
-          <span className="small-caps text-ink-mute">get started</span>
+          <span className="small-caps text-ink-mute">how it works</span>
           <h1 className="mt-4 flex min-h-[2.2em] items-start font-display text-[clamp(34px,5vw,58px)] font-extrabold leading-[1.04] tracking-[-0.035em] text-ink">
             <Typewriter
               phrases={[
-                "Put your agent to work.",
-                "From zero to a paid agent.",
-                "Three steps. Let's go.",
+                "An agent that pays for itself.",
+                "Money, moved by software.",
+                "No human in the loop.",
               ]}
             />
           </h1>
@@ -118,53 +118,12 @@ export default function HowItWorksPage() {
             Envoy gives any AI agent a real on-chain account on Celo — an{" "}
             <span className="font-medium text-ink">ERC-8004 identity</span> it owns,
             funded down any rail, settling in{" "}
-            <span className="font-medium text-ink">cUSD</span>. Here&apos;s how to set one
-            up and start moving money.
+            <span className="font-medium text-ink">cUSD</span>. Here&apos;s the whole
+            machine: who controls it, how a payment clears, and where the keys live.
           </p>
         </Reveal>
 
-        {/* ── the three steps (navigation) ── */}
-        <section className="mt-12">
-          <div className="grid gap-4 md:grid-cols-3">
-            {ONBOARD.map((s, i) => (
-              <Reveal key={s.n} delay={i * 0.1}>
-                <Link
-                  href={s.href}
-                  className="glass group flex h-full flex-col rounded-2xl p-6 transition-transform hover:-translate-y-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[12px] text-ink-faint">{s.n}</span>
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full border border-ink/10 font-mono text-xs text-ink-mute transition-colors group-hover:border-ink/30 group-hover:text-ink">
-                      →
-                    </span>
-                  </div>
-                  <h3 className="mt-6 font-display text-xl font-bold tracking-tight text-ink">
-                    {s.title}
-                  </h3>
-                  <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-soft">
-                    {s.blurb}
-                  </p>
-                  <span className="mt-5 small-caps text-ink transition-colors group-hover:text-ink-soft">
-                    {s.cta} →
-                  </span>
-                </Link>
-              </Reveal>
-            ))}
-          </div>
-        </section>
-
-        {/* ── live cycle (terminal) ── */}
-        <Section eyebrow="watch it run" title="A full cycle, start to settle.">
-          <p className="mb-6 max-w-[42rem] text-[15px] leading-relaxed text-ink-soft">
-            Fund in, authorize, settle out — all on Celo, all signed. This is the loop
-            the steps above kick off.
-          </p>
-          <Reveal>
-            <Terminal lines={TERM} />
-          </Reveal>
-        </Section>
-
-        {/* ── the model (condensed) ── */}
+        {/* ── the model (the actors, explained first) ── */}
         <Section eyebrow="the model" title="One agent, two keys.">
           <div className="grid gap-4 md:grid-cols-2">
             <Reveal delay={0}>
@@ -188,6 +147,18 @@ export default function HowItWorksPage() {
             (and a capped fee to the treasury) in a single transaction. It never holds
             funds.
           </p>
+        </Section>
+
+        {/* ── the autonomous loop (now that you know the actors, watch it run) ── */}
+        <Section eyebrow="the loop" title="From a 402 to paid data.">
+          <p className="mb-6 max-w-[42rem] text-[15px] leading-relaxed text-ink-soft">
+            The thesis, runnable: the agent calls a paid API, gets a 402, settles it
+            itself through the facilitator, then retries with the on-chain receipt —
+            all signed, all on Celo, no human approving a thing.
+          </p>
+          <Reveal>
+            <Terminal lines={TERM} />
+          </Reveal>
         </Section>
 
         {/* ── custody (where the signing key lives) ── */}
@@ -217,6 +188,36 @@ export default function HowItWorksPage() {
             spending policy you set (per-transaction and daily caps), and revoked the instant
             the owner NFT moves.
           </p>
+        </Section>
+
+        {/* ── now do it: the three steps ── */}
+        <Section eyebrow="get started" title="Three steps to a paid agent.">
+          <div className="grid gap-4 md:grid-cols-3">
+            {ONBOARD.map((s, i) => (
+              <Reveal key={s.n} delay={i * 0.1}>
+                <Link
+                  href={s.href}
+                  className="glass group flex h-full flex-col rounded-2xl p-6 transition-transform hover:-translate-y-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[12px] text-ink-faint">{s.n}</span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full border border-ink/10 font-mono text-xs text-ink-mute transition-colors group-hover:border-ink/30 group-hover:text-ink">
+                      →
+                    </span>
+                  </div>
+                  <h3 className="mt-6 font-display text-xl font-bold tracking-tight text-ink">
+                    {s.title}
+                  </h3>
+                  <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-soft">
+                    {s.blurb}
+                  </p>
+                  <span className="mt-5 small-caps text-ink transition-colors group-hover:text-ink-soft">
+                    {s.cta} →
+                  </span>
+                </Link>
+              </Reveal>
+            ))}
+          </div>
         </Section>
 
         {/* ── live contracts (the proof) ── */}
