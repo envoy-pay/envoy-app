@@ -78,7 +78,7 @@ function randHex(bytes: number): Hex {
 }
 
 export default function PayPage() {
-  const { available } = useWallet();
+  const { available, provider } = useWallet();
   const chain = getCeloChain(CHAIN_ID);
   const { facilitator, identityRegistry } = getEnvoyAddresses(CHAIN_ID);
   const token = chain.assets.cUSD.address;
@@ -128,7 +128,7 @@ export default function PayPage() {
 
       // 1 — connect + verify the signer is the agent's authorized wallet
       patch("connect", "active");
-      const { account, walletClient, publicClient } = await connectWallet(CHAIN_ID);
+      const { account, walletClient, publicClient } = await connectWallet(CHAIN_ID, provider ?? undefined);
       const agentWallet = (await publicClient.readContract({
         address: identityRegistry,
         abi: ERC8004_IDENTITY_ABI,

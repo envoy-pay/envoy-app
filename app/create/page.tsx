@@ -89,7 +89,7 @@ export default function CreatePage() {
     };
   }, []);
 
-  const { available } = useWallet();
+  const { available, provider } = useWallet();
   const chain = getCeloChain(chainId);
   const isMainnet = chainId === CELO_MAINNET;
 
@@ -189,7 +189,7 @@ export default function CreatePage() {
     try {
       // 1 — connect the owner wallet (the EOA that will hold the NFT)
       patch("connect", "active");
-      const { account, walletClient, publicClient } = await connectWallet(chainId);
+      const { account, walletClient, publicClient } = await connectWallet(chainId, provider ?? undefined);
       const { identityRegistry, facilitator } = getEnvoyAddresses(chainId);
       patch("connect", "done", `${account.slice(0, 6)}…${account.slice(-4)}`);
 
@@ -298,7 +298,12 @@ export default function CreatePage() {
 
       // 4 — the agent key signs AgentWalletSet, proving control of its own key.
       patch("authorize", "active");
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+      // The canonical registry rejects a binding deadline set too far ahead
+      // ("deadline too far" — it enforces a short replay window, well under an
+      // hour). Anchor to chain time (not the client clock, which may be skewed)
+      // and leave ~150s — comfortably inside the window, ample for the prompt.
+      const nowBlock = await publicClient.getBlock();
+      const deadline = nowBlock.timestamp + 150n;
       const signature = await signAgentWalletSet(agentId, deadline);
       patch("authorize", "done", custody === "turnkey" ? "signed in enclave" : "agent authorized its key");
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { DEFAULT_AGENT_ID, DEFAULT_CHAIN_ID } from "@/lib/chains";
+import { CELO_CHAINS, DEFAULT_AGENT_ID, DEFAULT_CHAIN_ID } from "@/lib/chains";
 import { useWallet } from "./WalletProvider";
 
 interface Props {
@@ -68,22 +68,110 @@ export function Masthead({ rightSlot }: Props) {
 }
 
 function ConnectButton() {
-  const { account, connecting, connect, disconnect, available, wallets } = useWallet();
+  const { account, chainId, connecting, reconnecting, connect, disconnect, available, wallets } =
+    useWallet();
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
+  // Connected → an account menu. Disconnect lives INSIDE the menu as an explicit
+  // choice, so a stray click on the pill can never nuke the session (it used to).
   if (account) {
     const short = `${account.slice(0, 5)}…${account.slice(-4)}`;
+    const explorer = (chainId && CELO_CHAINS[chainId]?.explorer) || "https://celoscan.io";
+    const copy = async () => {
+      try {
+        await navigator.clipboard.writeText(account);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      } catch {
+        /* clipboard blocked — no-op */
+      }
+    };
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          title="Account"
+          className="group inline-flex items-center gap-2 rounded-full border border-ink/10 bg-paper-bright/60 px-3 py-1.5 transition-colors hover:border-ink/20"
+        >
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ink-mute/60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ink-soft" />
+          </span>
+          <span className="font-mono text-[12px] text-ink">{short}</span>
+          <span className="font-mono text-[10px] text-ink-faint transition-transform group-hover:translate-y-0.5">
+            ▾
+          </span>
+        </button>
+
+        {open && (
+          <>
+            <button
+              aria-label="Close"
+              className="fixed inset-0 z-40 cursor-default"
+              onClick={() => setOpen(false)}
+            />
+            <div
+              role="menu"
+              className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-xl border border-ink/10 bg-paper-bright/95 p-1.5 shadow-[0_24px_60px_-30px_rgba(22,23,27,0.4)] backdrop-blur"
+            >
+              <div className="px-2.5 py-2">
+                <p className="flag text-ink-faint">connected</p>
+                <p className="mt-1 break-all font-mono text-[12px] leading-relaxed text-ink">
+                  {account}
+                </p>
+              </div>
+              <div className="my-1 h-px bg-ink/[0.06]" />
+              <button
+                role="menuitem"
+                onClick={copy}
+                className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-ink/[0.05]"
+              >
+                copy address
+                <span className="font-mono text-[11px] text-ink-faint">{copied ? "copied" : ""}</span>
+              </button>
+              <a
+                role="menuitem"
+                href={`${explorer}/address/${account}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] text-ink transition-colors hover:bg-ink/[0.05]"
+              >
+                view on explorer
+                <span className="font-mono text-[11px] text-ink-faint">↗</span>
+              </a>
+              <div className="my-1 h-px bg-ink/[0.06]" />
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  disconnect();
+                }}
+                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-[13px] text-ink-mute transition-colors hover:bg-ink/[0.05] hover:text-ink"
+              >
+                disconnect
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Still silently restoring a remembered wallet — don't offer "connect" yet, or
+  // a click would prompt the wallet for a session we're about to recover anyway.
+  if (reconnecting) {
     return (
       <button
-        onClick={disconnect}
-        title="Disconnect"
-        className="group inline-flex items-center gap-2 rounded-full border border-ink/10 bg-paper-bright/60 px-3 py-1.5 transition-colors hover:border-ink/20"
+        disabled
+        title="Restoring your wallet…"
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink/15 bg-paper-bright/50 px-4 py-1.5 small-caps text-ink-mute disabled:opacity-70"
       >
-        <span className="relative flex h-1.5 w-1.5">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ink-mute/60" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ink-soft" />
-        </span>
-        <span className="font-mono text-[12px] text-ink">{short}</span>
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-soft" />
+        restoring…
       </button>
     );
   }

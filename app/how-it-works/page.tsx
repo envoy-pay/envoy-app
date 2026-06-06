@@ -73,7 +73,7 @@ export default function HowItWorksPage() {
       title: "Create an agent",
       href: "/create",
       blurb:
-        "Mint an ERC-8004 identity in one transaction. Your wallet becomes the owner and the agent's first signing key.",
+        "Mint an ERC-8004 identity you own. Envoy generates the agent's own signing key — in your browser or a secure enclave — and binds it on-chain.",
       cta: "Create an agent",
       external: false,
     },
@@ -190,6 +190,35 @@ export default function HowItWorksPage() {
           </p>
         </Section>
 
+        {/* ── custody (where the signing key lives) ── */}
+        <Section eyebrow="custody" title="Hold the signer your way.">
+          <p className="mb-6 max-w-[42rem] text-[15px] leading-relaxed text-ink-soft">
+            The signing key is the agent&apos;s hands — so you choose where it lives.
+            Pick when you create the agent; the on-chain identity is identical either way.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Reveal delay={0}>
+              <Card
+                head="Self-custody"
+                sub="keys in your hands"
+                body="Generated in your browser with secure randomness and revealed exactly once. You hold it and back it up — nothing ever leaves the device or touches our servers."
+              />
+            </Reveal>
+            <Reveal delay={0.12}>
+              <Card
+                head="Turnkey enclave"
+                sub="TEE · non-exportable"
+                body="Provisioned inside a Turnkey secure enclave (TEE). The key is non-exportable and never leaves the hardware — the agent signs every EIP-712 payment through the enclave API. Ideal for an agent that runs unattended."
+              />
+            </Reveal>
+          </div>
+          <p className="mt-4 max-w-[42rem] text-[14px] leading-relaxed text-ink-mute">
+            Either way the owner stays in control: the signer is bound on-chain, gated by a
+            spending policy you set (per-transaction and daily caps), and revoked the instant
+            the owner NFT moves.
+          </p>
+        </Section>
+
         {/* ── live contracts (the proof) ── */}
         <Section eyebrow="live on celo" title="Deployed, not described.">
           <p className="mb-6 max-w-[42rem] text-[15px] leading-relaxed text-ink-soft">
@@ -250,7 +279,7 @@ export default function HowItWorksPage() {
                 Ready? Mint your agent.
               </h2>
               <p className="mt-2 text-[15px] text-ink-soft">
-                One transaction and your agent has an account it controls.
+                A few signed steps and your agent has an account it controls.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2.5">
