@@ -103,6 +103,7 @@ export default async function FundPage({ params, searchParams }: PageProps) {
           <Reveal className="flex flex-col gap-6 lg:sticky lg:top-24">
             <AgentAccountCard
               agentId={String(agent.agentId)}
+              wallet={agent.agentWallet}
               walletTail={walletTail}
               balance={balanceValue ?? 0}
               network={chain.shortName}

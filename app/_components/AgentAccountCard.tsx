@@ -14,17 +14,20 @@ const easeOut = [0.16, 1, 0.3, 1] as const;
 
 interface Props {
   agentId?: string;
-  /** 4-char hex groups shown as the "account number". First group is fixed 0x8004 (ERC-8004). */
+  /** Full agent signing wallet (0x…) — shown as the account number and copied on click. */
+  wallet?: string;
+  /** Last-4 fallback when the full wallet isn't available. */
   walletTail?: string;
   balance?: number;
   network?: string;
-  /** When set, the card hydrates agentId / walletTail / balance from chain via /api/agent. */
+  /** When set, the card hydrates agentId / wallet / balance from chain via /api/agent. */
   fetchAgentId?: string;
   chainId?: number;
 }
 
 interface LiveAgent {
   agentId: string;
+  wallet?: string;
   walletTail: string;
   balance: number | null;
   live: boolean;
@@ -39,6 +42,7 @@ interface LiveAgent {
  */
 export function AgentAccountCard({
   agentId = "00128",
+  wallet,
   walletTail = "A432",
   balance = 42.1,
   network = "Celo",
@@ -57,6 +61,7 @@ export function AgentAccountCard({
         if (cancelled || d?.error) return;
         setLive({
           agentId: String(d.agentId),
+          wallet: d.agentWallet ?? undefined,
           walletTail: d.walletTail ?? walletTail,
           balance: d.balance != null ? Number(d.balance) : null,
           live: true,
@@ -71,6 +76,7 @@ export function AgentAccountCard({
   }, [fetchAgentId, chainId, walletTail, balance]);
 
   const shownId = live?.agentId ?? agentId;
+  const shownWallet = live?.wallet ?? wallet;
   const shownTail = live?.walletTail ?? walletTail;
   // In live mode, balance may legitimately be null (RPC unreachable) — show "—",
   // never the illustrative default, so the hero never displays a fabricated number.
@@ -203,15 +209,10 @@ export function AgentAccountCard({
             </span>
           </div>
 
-          {/* chip + account number */}
+          {/* chip + account number (click to copy the full wallet) */}
           <div>
             <Chip />
-            <div className="mt-4 flex items-center gap-3 font-mono text-[clamp(15px,2.4vw,20px)] tracking-[0.12em] text-slate-text/90">
-              <span>0x8004</span>
-              <Dots />
-              <Dots />
-              <span>{shownTail}</span>
-            </div>
+            <AccountNumber wallet={shownWallet} tail={shownTail} />
           </div>
 
           {/* footer row */}
@@ -269,6 +270,58 @@ function Dots() {
         <span className="h-[3px] w-[3px] rounded-full bg-slate-mute/70" key={i} />
       ))}
     </span>
+  );
+}
+
+/**
+ * The card's "account number": the agent's real signing wallet, shown as
+ * head + masked middle + tail, and copied in full on click. Falls back to the
+ * stylized ERC-8004 motif only when no real wallet is available.
+ */
+function AccountNumber({ wallet, tail }: { wallet?: string; tail: string }) {
+  const [copied, setCopied] = useState(false);
+  const isAddr = !!wallet && wallet.startsWith("0x") && wallet.length >= 10;
+  const head = isAddr ? `0x${wallet!.slice(2, 6)}` : "0x8004";
+  const end = isAddr ? wallet!.slice(-4).toUpperCase() : tail;
+
+  const cls =
+    "mt-4 flex items-center gap-3 font-mono text-[clamp(15px,2.4vw,20px)] tracking-[0.12em] text-slate-text/90";
+
+  const number = (
+    <span className="flex items-center gap-3">
+      <span>{head}</span>
+      <Dots />
+      <Dots />
+      <span>{end}</span>
+    </span>
+  );
+
+  if (!isAddr) return <div className={cls}>{number}</div>;
+
+  async function copy(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(wallet!);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard blocked — ignore */
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={`Copy ${wallet}`}
+      aria-label="Copy agent wallet address"
+      className={`group/acct ${cls} cursor-pointer text-left transition-opacity hover:opacity-90`}
+    >
+      {number}
+      <span className="ml-1 small-caps text-[10px] text-slate-mute opacity-0 transition-opacity group-hover/acct:opacity-100">
+        {copied ? "copied ✓" : "copy"}
+      </span>
+    </button>
   );
 }
 
