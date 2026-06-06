@@ -108,7 +108,6 @@ export default function PayPage() {
   // The connected wallet's own agents — populates the agent-id picker.
   const [agents, setAgents] = useState<{ agentId: string; agentWallet: string; walletTail: string }[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
-  const [manualId, setManualId] = useState(false);
 
   const [steps, setSteps] = useState<Step[]>(STEPS);
   const [running, setRunning] = useState(false);
@@ -667,31 +666,26 @@ export default function PayPage() {
 
           <div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_0.6fr]">
             <Field label="agent">
-              {account && agents.length > 0 && !manualId ? (
-                <select
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  className="field"
-                >
+              <input
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                placeholder="agent id — type it, or pick a suggestion"
+                inputMode="numeric"
+                list={account && agents.length > 0 ? "my-agents" : undefined}
+                className="field"
+              />
+              {account && agents.length > 0 && (
+                <datalist id="my-agents">
                   {agents.map((a) => {
                     const selfSigned =
                       !!account && a.agentWallet.toLowerCase() === account.toLowerCase();
                     return (
                       <option key={a.agentId} value={a.agentId}>
-                        {selfSigned
-                          ? `#${a.agentId} · you sign`
-                          : `#${a.agentId} · key 0x…${a.walletTail}`}
+                        {selfSigned ? "you sign" : `agent key 0x…${a.walletTail}`}
                       </option>
                     );
                   })}
-                </select>
-              ) : (
-                <input
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  placeholder="agent id"
-                  className="field"
-                />
+                </datalist>
               )}
             </Field>
             <Field label="amount">
@@ -711,17 +705,11 @@ export default function PayPage() {
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-ink-faint">
-            {account && agents.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setManualId((v) => !v)}
-                className="transition-colors hover:text-ink"
-              >
-                {manualId ? `pick from my agents (${agents.length})` : "or type an id"}
-              </button>
-            )}
             {account && agentsLoading && <span>finding your agents…</span>}
-            {account && !agentsLoading && agents.length === 0 && <span>no agents found — type an id</span>}
+            {account && !agentsLoading && agents.length > 0 && (
+              <span>type any id, or pick from the {agents.length} on this wallet</span>
+            )}
+            {account && !agentsLoading && agents.length === 0 && <span>type your agent id</span>}
             {!account && <span>connect a wallet to list your agents</span>}
             {mode === "agentkey" && <span>· key stays in your browser</span>}
           </div>
