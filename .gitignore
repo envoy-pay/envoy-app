@@ -6,3 +6,6 @@ out
 *.log
 .DS_Store
 next-env.d.ts
+
+# TypeScript incremental build cache
+*.tsbuildinfo
