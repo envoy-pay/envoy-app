@@ -15,13 +15,14 @@ const NAV = [
   { label: "create", href: "/create" },
   { label: "how it works", href: "/how-it-works" },
   { label: "pay", href: "/pay" },
+  { label: "card", href: "/card" },
 ];
 
 export function Masthead({ rightSlot }: Props) {
   const demoHref = `/fund/${DEFAULT_AGENT_ID}?chain=${DEFAULT_CHAIN_ID}`;
   const pathname = usePathname();
   // "Launch" sends you into the demo — redundant once you're already in the app.
-  const showLaunch = !["/fund", "/create", "/pay"].some((p) => pathname?.startsWith(p));
+  const showLaunch = !["/fund", "/create", "/pay", "/card"].some((p) => pathname?.startsWith(p));
   return (
     <motion.header
       initial={{ opacity: 0, y: -16 }}
